@@ -1,0 +1,1 @@
+# nymeriasoft-sdk
