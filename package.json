@@ -1,0 +1,48 @@
+{
+  "name": "@nymeria-sys/nymeriasoft-sdk",
+  "version": "1.0.0",
+  "description": "NymeriaSoft SDK for JavaScript",
+  "main": "index.js",
+  "scripts": {
+    "test": "jest --verbose --runInBand"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nymeria-sys/nymeriasoft-sdk.git"
+  },
+  "keywords": [
+    "nymeriasoft",
+    "nymeriasys"
+  ],
+  "author": "Leonardo Neto",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/nymeria-sys/nymeriasoft-sdk/issues"
+  },
+  "homepage": "https://github.com/nymeria-sys/nymeriasoft-sdk#readme",
+  "devDependencies": {
+    "@jest/globals": "^29.7.0",
+    "@types/jest": "^29.5.12",
+    "@types/qs": "^6.9.15",
+    "babel-jest": "^29.7.0",
+    "dotenv": "^16.4.5",
+    "eslint": "^9.9.1",
+    "globals": "^15.9.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.2.5",
+    "typescript": "^5.5.4",
+    "typescript-eslint": "^8.3.0"
+  },
+  "dependencies": {
+    "@apollo/client": "^3.11.5",
+    "axios": "^1.7.5",
+    "cross-fetch": "^4.0.0",
+    "date-fns": "^3.6.0",
+    "date-fns-tz": "^3.1.3",
+    "open": "^8.4.0",
+    "pino": "^9.3.2",
+    "pino-pretty": "^11.2.2",
+    "qs": "^6.13.0",
+    "tsyringe": "^4.8.0"
+  }
+}
