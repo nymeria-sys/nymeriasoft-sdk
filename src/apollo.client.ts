@@ -41,7 +41,7 @@ export default (
     );
 
     if (!response.ok) {
-      if (response.status === 403) {
+      if (response.status === 403 || response.status === 401) {
         logger.warn(
           "Your refresh token is expired. Clearing credentials. You need to login again."
         );

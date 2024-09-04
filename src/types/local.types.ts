@@ -11,6 +11,7 @@ export type NymeriaSoftSDKConfig = {
   oauth_authorize_path?: string;
   oauth_token_path?: string;
   oauth_revoke_path?: string;
+  oauth_console_path?: string;
   oauth_response_type?: string;
   oauth_callback_port?: number;
   refresh_token_path?: string;
@@ -18,4 +19,5 @@ export type NymeriaSoftSDKConfig = {
   logger?: Logger<never>;
   scope?: string;
   store?: CredentialStore;
+  realtime_uri?: string;
 };

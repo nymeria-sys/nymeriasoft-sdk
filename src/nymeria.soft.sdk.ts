@@ -6,22 +6,27 @@ import { randomBytes, createHash } from "crypto";
 import open from "open";
 import { AUTHORIZED_HTML } from "./constants";
 import qs from "qs";
-import { joinMultiplePaths } from "./utils";
+import { formatRemainingTime, joinMultiplePaths, utcTimespamp } from "./utils";
 import { Token } from "./interface/token.interface";
 import {
   ApolloClient,
   ApolloClientOptions,
+  gql,
   NormalizedCacheObject,
 } from "@apollo/client/core";
 import apolloClient from "./apollo.client";
 import { Logger } from "pino";
 import pinoLocal from "./pino.local";
 import BackendUtil from "./backend.util";
+import realtimeInitFn from "./realtime";
+import { ClientOptions } from "ws";
+import ReconnectingWebSocket, { Options } from "reconnecting-websocket";
 
 export default class NymeriaSoftSDK {
   private code_verifier: string | undefined;
   private apollo_client: ApolloClient<NormalizedCacheObject> | undefined;
   private backend: BackendUtil | undefined;
+  realtime: ReconnectingWebSocket | undefined;
   logger: Logger<never>;
 
   constructor(private config: NymeriaSoftSDKConfig) {
@@ -47,6 +52,10 @@ export default class NymeriaSoftSDK {
       throw new Error("auth_type must be CONSOLE or BROWSER");
     }
 
+    if (!config.realtime_uri) {
+      config.realtime_uri = `wss://realtime-dev.api.nymeriasoft.com.br`;
+    }
+
     if (!config.oauth_authorize_path) {
       this.config.oauth_authorize_path = "oauth/authorize";
     }
@@ -60,6 +69,10 @@ export default class NymeriaSoftSDK {
 
     if (!config.oauth_response_type) {
       this.config.oauth_response_type = "code";
+    }
+
+    if (!config.oauth_console_path) {
+      this.config.oauth_console_path = "api/v1/public/oauth/auth-code-console";
     }
 
     if (!config.oauth_callback_port) {
@@ -89,6 +102,7 @@ export default class NymeriaSoftSDK {
     }
     if (this.config.store.getCredentials()) {
       this.logger!.info("You're logged in");
+      this.hasTokenExpired("REFRESH_TOKEN");
       return true;
     }
     const code = await this.requestAuthorizationCode();
@@ -96,6 +110,7 @@ export default class NymeriaSoftSDK {
     const { store } = this.config;
     store.saveCredentials(token);
 
+    this.hasTokenExpired("REFRESH_TOKEN");
     return true;
   }
 
@@ -134,6 +149,35 @@ export default class NymeriaSoftSDK {
     return server;
   }
 
+  hasTokenExpired(
+    token_type: "REFRESH_TOKEN" | "ACCESS_TOKEN" = "REFRESH_TOKEN"
+  ) {
+    const { store } = this.config;
+    const credentials = store!.getCredentials();
+    const current_timestamp = Math.floor(utcTimespamp() / 1000);
+    const issued_timestamp = credentials!.user!.issued_timestamp;
+    const elapsed_time = current_timestamp - issued_timestamp;
+    const token_lifespan =
+      token_type === "REFRESH_TOKEN"
+        ? credentials!.user!.refresh_token_lifespan
+        : credentials!.user!.access_token_lifespan;
+    const expiration_timestamp = issued_timestamp + token_lifespan;
+    const expired = elapsed_time >= expiration_timestamp;
+    const remaining_seconds = expiration_timestamp - current_timestamp;
+    if (!expired) {
+      const formated_remaining = formatRemainingTime({
+        current_timestamp,
+        expiration_timestamp,
+        seconds: remaining_seconds,
+        token_type,
+      });
+      this.logger.warn(formated_remaining);
+    } else {
+      this.logger.warn(`${token_type} has expired`);
+    }
+    return expired;
+  }
+
   //oauth/authorize/:client_id
   async requestAuthorizationCode() {
     return new Promise<string>(async (resolve, reject) => {
@@ -147,6 +191,7 @@ export default class NymeriaSoftSDK {
           redirect_uri: this.config.redirect_uri,
           response_type: this.config.oauth_response_type!,
           scope: this.config.scope!,
+          authorization_exchange: this.config.auth_type!.toLowerCase(),
         };
 
         const search_params = new URLSearchParams(search);
@@ -173,13 +218,64 @@ export default class NymeriaSoftSDK {
             reject(new Error("Timeout error: Authorization code not received"));
           }, 60000 * 10);
         } else {
-          this.logger.info(
-            `Please visit ${authorize_url} to authorize the app`
-          );
+          console.log(`Please visit ${authorize_url} to authorize the app`);
+
+          try {
+            const code = await this.awaitForAuthorizationCodeFromRequest({
+              client_id: this.config.client_id,
+              redirect_uri: this.config.redirect_uri,
+              code_challenge,
+            });
+            resolve(code);
+          } catch (error) {
+            reject(error);
+          }
         }
       } catch (error) {
         reject(error);
       }
+    });
+  }
+
+  awaitForAuthorizationCodeFromRequest({
+    client_id,
+    redirect_uri,
+    code_challenge,
+  }: {
+    client_id: string;
+    redirect_uri: string;
+    code_challenge: string;
+  }) {
+    return new Promise<string>(async (resolve, reject) => {
+      let retries = 0;
+      const get_code = async () => {
+        try {
+          const result = await this.getOAuthCodeByConsole({
+            client_id,
+            redirect_uri,
+            code_challenge,
+          });
+          if (result.code) {
+            return resolve(result.code);
+          }
+          throw new Error("Authorization code not received");
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any
+        } catch (err: any) {
+          retries++;
+          if (retries >= 20) {
+            return reject(
+              new Error(
+                "Authorization timeout - Failed to get authorization code."
+              )
+            );
+          }
+          setTimeout(() => {
+            get_code();
+          }, 10000);
+        }
+      };
+
+      get_code();
     });
   }
 
@@ -246,5 +342,59 @@ export default class NymeriaSoftSDK {
 
     const result = await axios<Token>(config);
     return result.data;
+  }
+
+  async getOAuthCodeByConsole({
+    client_id,
+    redirect_uri,
+    code_challenge,
+  }: {
+    client_id: string;
+    redirect_uri: string;
+    code_challenge: string;
+  }) {
+    const data = JSON.stringify({ client_id, redirect_uri, code_challenge });
+    const console_url = `${joinMultiplePaths(
+      this.config.instance_backend_uri!,
+      this.config.oauth_console_path!
+    )}`;
+    const config = {
+      method: "post",
+      url: console_url,
+      headers: {
+        "Content-Type": "application/json",
+      },
+      data: data,
+    };
+
+    const result = await axios<{ code: string }>(config);
+    return result.data;
+  }
+
+  initRealtime(
+    reconnect_opts?: Partial<Options>,
+    options?: Partial<ClientOptions>
+  ) {
+    if (!this.realtime) {
+      this.realtime = realtimeInitFn(this, reconnect_opts, options);
+    }
+    return this.realtime;
+  }
+
+  async revalidateTokenIfNecessary() {
+    const backend = await this.getBackend();
+    const query = gql`
+      query CurrentUser {
+        currentUser {
+          id
+        }
+      }
+    `;
+    await backend.query({
+      query: query,
+      variables: {},
+    });
+
+    this.logger.info("Token revalidated");
   }
 }

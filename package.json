@@ -24,6 +24,7 @@
     "@jest/globals": "^29.7.0",
     "@types/jest": "^29.5.12",
     "@types/qs": "^6.9.15",
+    "@types/ws": "^8.5.12",
     "babel-jest": "^29.7.0",
     "dotenv": "^16.4.5",
     "eslint": "^9.9.1",
@@ -35,6 +36,7 @@
   },
   "dependencies": {
     "@apollo/client": "^3.11.5",
+    "@aws-sdk/client-apigatewaymanagementapi": "^3.637.0",
     "axios": "^1.7.5",
     "cross-fetch": "^4.0.0",
     "date-fns": "^3.6.0",
@@ -43,6 +45,8 @@
     "pino": "^9.3.2",
     "pino-pretty": "^11.2.2",
     "qs": "^6.13.0",
-    "tsyringe": "^4.8.0"
+    "reconnecting-websocket": "^4.4.0",
+    "tsyringe": "^4.8.0",
+    "ws": "^8.18.0"
   }
 }
