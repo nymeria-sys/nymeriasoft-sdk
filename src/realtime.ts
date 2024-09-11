@@ -23,8 +23,8 @@ export default function (
 
   const options = {
     WebSocket: WebSocket, // custom WebSocket constructor
-    connectionTimeout: 1000,
-    maxRetries: 100,
+    connectionTimeout: 20000,
+    maxRetries: 10000,
     ...reconnect_opts,
   };
 
