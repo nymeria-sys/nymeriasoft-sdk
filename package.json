@@ -1,6 +1,6 @@
 {
   "name": "@nymeria-sys/nymeriasoft-sdk",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "scope": "nymeria-sys",
   "description": "NymeriaSoft SDK for JavaScript",
   "main": "build/index.js",
