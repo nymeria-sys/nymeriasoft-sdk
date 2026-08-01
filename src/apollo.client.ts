@@ -78,7 +78,7 @@ export default (
 
         response = await fetch(input, { ...init, headers });
       } catch (error) {
-        logger.error("Failed to renew access token", error);
+        logger.error(error, "Failed to renew access token");
         return response;
       }
     }

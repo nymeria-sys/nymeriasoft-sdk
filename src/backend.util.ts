@@ -60,7 +60,7 @@ export default class BackendUtil {
             err.extensions[field]
           );
         });
-        this.sdk.logger.error(errorMessages, { error: err });
+        this.sdk.logger.error({ error: err }, errorMessages);
       });
     } else {
       this.sdk.logger.error(error);

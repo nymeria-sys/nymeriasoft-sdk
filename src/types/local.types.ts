@@ -7,7 +7,7 @@ export type NymeriaSoftSDKConfig = {
   client_id: string;
   client_secret: string;
   redirect_uri: string;
-  auth_type?: "CONSOLE" | "BROWSER";
+  auth_type?: "CONSOLE" | "BROWSER" | "CLIENT_CREDENTIALS";
   oauth_authorize_path?: string;
   oauth_token_path?: string;
   oauth_revoke_path?: string;

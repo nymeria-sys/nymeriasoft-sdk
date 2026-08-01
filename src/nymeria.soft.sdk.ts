@@ -30,6 +30,16 @@ export default class NymeriaSoftSDK {
   logger: Logger<never>;
 
   constructor(private config: NymeriaSoftSDKConfig) {
+    // CLIENT_CREDENTIALS e servico puro (maquina-a-maquina): so o backend
+    // importa — frontend/redirect sao formalidades do fluxo interativo.
+    if (config.auth_type === "CLIENT_CREDENTIALS") {
+      if (!config.instance_backend_uri && !config.instance_fontend_uri) {
+        throw new Error("instance_backend_uri is required");
+      }
+      if (!config.instance_fontend_uri) {
+        config.instance_fontend_uri = config.instance_backend_uri as string;
+      }
+    }
     if (!config.instance_fontend_uri) {
       throw new Error("instance_fontend_uri is required");
     }
@@ -47,9 +57,11 @@ export default class NymeriaSoftSDK {
     }
     if (
       config.auth_type &&
-      !["CONSOLE", "BROWSER"].includes(config.auth_type)
+      !["CONSOLE", "BROWSER", "CLIENT_CREDENTIALS"].includes(config.auth_type)
     ) {
-      throw new Error("auth_type must be CONSOLE or BROWSER");
+      throw new Error(
+        "auth_type must be CONSOLE, BROWSER or CLIENT_CREDENTIALS"
+      );
     }
 
     if (!config.realtime_uri) {
@@ -100,6 +112,13 @@ export default class NymeriaSoftSDK {
     if (!this.config.store) {
       throw new Error("store is required");
     }
+    // Servico: troca client_id+secret pelo par direto (grant
+    // client_credentials) — sem navegador, sem pareamento, autocuravel.
+    if (this.config.auth_type === "CLIENT_CREDENTIALS") {
+      await this.ensureFreshAccessToken();
+      this.logger!.info("Authenticated via client_credentials");
+      return true;
+    }
     if (this.config.store.getCredentials()) {
       this.logger!.info("You're logged in");
       this.hasTokenExpired("REFRESH_TOKEN");
@@ -112,6 +131,112 @@ export default class NymeriaSoftSDK {
 
     this.hasTokenExpired("REFRESH_TOKEN");
     return true;
+  }
+
+  private static decodeJwt(token: string): {
+    exp: number | null;
+    data: Record<string, unknown>;
+  } {
+    try {
+      const payload = JSON.parse(
+        Buffer.from(token.split(".")[1], "base64url").toString("utf8")
+      );
+      return {
+        exp: typeof payload.exp === "number" ? payload.exp : null,
+        data: payload.data ?? {},
+      };
+    } catch {
+      return { exp: null, data: {} };
+    }
+  }
+
+  // Cunha o par pelo grant client_credentials. O backend registra a SESSAO
+  // (sys_auth_session) — revogar a sessao mata a renovacao e o proximo
+  // ensureFreshAccessToken re-autentica com o secret sozinho.
+  async requestClientCredentialsToken(): Promise<Token> {
+    const url = joinMultiplePaths(
+      this.config.instance_backend_uri!,
+      this.config.oauth_token_path!
+    );
+    const result = await axios<{ access_token: string; refresh_token: string }>(
+      {
+        method: "post",
+        url,
+        headers: { "Content-Type": "application/json" },
+        data: JSON.stringify({
+          grant_type: "client_credentials",
+          client_id: this.config.client_id,
+          client_secret: this.config.client_secret,
+        }),
+      }
+    );
+    const { access_token, refresh_token } = result.data;
+    const decoded = NymeriaSoftSDK.decodeJwt(access_token);
+    return {
+      accessToken: access_token,
+      refreshToken: refresh_token,
+      client: {
+        id: "",
+        clientId: this.config.client_id,
+        clientSecret: "",
+        grants: ["client_credentials"],
+        redirectUris: [],
+        sys_scope_id: "global",
+      },
+      user: decoded.data,
+    } as unknown as Token;
+  }
+
+  // Access token valido AGORA (com margem): usa o cache, senao renova pelo
+  // refresh (respeita revogacao de sessao), senao — em CLIENT_CREDENTIALS —
+  // re-autentica com o secret. force=true descarta o access em cache.
+  async ensureFreshAccessToken(force = false): Promise<string> {
+    const store = this.config.store;
+    if (!store) {
+      throw new Error("store is required");
+    }
+    const MARGIN_S = 60;
+    const now = Math.floor(Date.now() / 1000);
+    const creds = store.getCredentials();
+
+    if (creds?.accessToken && !force) {
+      const { exp } = NymeriaSoftSDK.decodeJwt(creds.accessToken);
+      if (exp && exp - now > MARGIN_S) return creds.accessToken;
+    }
+
+    if (creds?.refreshToken) {
+      const { exp } = NymeriaSoftSDK.decodeJwt(creds.refreshToken);
+      if (exp && exp - now > MARGIN_S) {
+        try {
+          const response = await axios<{ access_token: string }>({
+            method: "post",
+            url: joinMultiplePaths(
+              this.config.instance_backend_uri!,
+              this.config.refresh_token_path!
+            ),
+            headers: { "Content-Type": "application/json" },
+            data: JSON.stringify({ token: creds.refreshToken }),
+          });
+          store.updateCredentials({
+            accessToken: response.data.access_token,
+          });
+          return response.data.access_token;
+        } catch (error) {
+          this.logger.warn(
+            "Refresh recusado (sessao revogada/expirada?) — seguindo para re-autenticacao"
+          );
+        }
+      }
+    }
+
+    if (this.config.auth_type === "CLIENT_CREDENTIALS") {
+      const token = await this.requestClientCredentialsToken();
+      store.saveCredentials(token);
+      this.logger.info("client_credentials: par renovado (sessao nova)");
+      return token.accessToken;
+    }
+
+    throw new Error("Session expired — call authorize() again");
   }
 
   getCredentialStore() {
