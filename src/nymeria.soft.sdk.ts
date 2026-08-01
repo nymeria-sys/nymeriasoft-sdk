@@ -313,7 +313,7 @@ export default class NymeriaSoftSDK {
           client_id: this.config.client_id,
           code_challenge: code_challenge,
           code_challenge_method: "S256",
-          redirect_uri: this.config.redirect_uri,
+          redirect_uri: this.config.redirect_uri!,
           response_type: this.config.oauth_response_type!,
           scope: this.config.scope!,
           authorization_exchange: this.config.auth_type!.toLowerCase(),
@@ -348,7 +348,7 @@ export default class NymeriaSoftSDK {
           try {
             const code = await this.awaitForAuthorizationCodeFromRequest({
               client_id: this.config.client_id,
-              redirect_uri: this.config.redirect_uri,
+              redirect_uri: this.config.redirect_uri!,
               code_challenge,
             });
             resolve(code);
